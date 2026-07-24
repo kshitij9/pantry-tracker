@@ -1,0 +1,66 @@
+// Prisma schema for the Pantry & Expiry Tracking App.
+// Run `npx prisma db push` after editing to sync the database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (Supabase transaction pooler, port 6543) — used at runtime.
+  url       = env("DATABASE_URL")
+  // Direct/session connection (port 5432) — used for `prisma db push` & migrations,
+  // which run DDL that PgBouncer's transaction mode can't handle.
+  directUrl = env("DIRECT_URL")
+}
+
+/// A registered user of the app. Orders and pantry items belong to a user.
+model User {
+  id         String       @id @default(cuid())
+  email      String       @unique
+  createdAt  DateTime     @default(now())
+
+  pantryItems PantryItem[]
+  orderLogs   OrderLog[]
+
+  @@map("users")
+}
+
+/// A single physical item currently (or formerly) in the user's pantry.
+model PantryItem {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rawName            String   // Original name as it appeared on the order (e.g. "Amul Taaza Milk 500ml")
+  normalizedCategory String   // One of the categories in lib/categories.ts (e.g. "Dairy")
+  quantity           Float    @default(1)
+  unit               String   @default("unit") // e.g. "pcs", "g", "ml", "pack"
+
+  purchasedAt        DateTime @default(now())
+  expiresAt          DateTime // Computed from category shelf-life defaults
+
+  source             String   @default("manual") // "instamart" | "blinkit" | "zepto" | "manual"
+  isConsumed         Boolean  @default(false)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId, isConsumed, expiresAt])
+  @@map("pantry_items")
+}
+
+/// Idempotency + audit log of every order email we have processed.
+model OrderLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messageId   String   // Gmail message id — used to avoid double-processing
+  platform    String   // "instamart" | "blinkit" | "zepto"
+  processedAt DateTime @default(now())
+
+  @@unique([messageId])
+  @@index([userId])
+  @@map("order_logs")
+}
