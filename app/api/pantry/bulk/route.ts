@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveHouseContext } from "@/lib/auth-helpers";
 import { computeExpiresAt } from "@/lib/categories";
+import { addOrMergeItems, type IncomingPantryItem } from "@/lib/pantry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   const source = typeof body?.source === "string" ? body.source : "invoice";
 
   // Validate + normalize each row; drop anything missing a name/category.
-  const data = incoming
+  const data: IncomingPantryItem[] = incoming
     .filter((i) => i.rawName?.trim() && i.normalizedCategory?.trim())
     .map((i) => {
       const purchasedAt = i.purchasedAt ? new Date(i.purchasedAt) : new Date();
@@ -39,8 +40,6 @@ export async function POST(req: NextRequest) {
         ? new Date(i.expiresAt)
         : computeExpiresAt(i.normalizedCategory!, purchasedAt);
       return {
-        houseId,
-        purchasedById: userId,
         rawName: String(i.rawName).trim(),
         normalizedCategory: String(i.normalizedCategory).trim(),
         quantity: Number(i.quantity) || 1,
@@ -55,6 +54,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No valid items to add." }, { status: 400 });
   }
 
-  const result = await prisma.pantryItem.createMany({ data });
-  return NextResponse.json({ count: result.count }, { status: 201 });
+  // De-duplicate against existing pantry (and within this batch).
+  const result = await prisma.$transaction((tx) =>
+    addOrMergeItems(tx, houseId, userId, data)
+  );
+  return NextResponse.json(
+    { count: result.created + result.merged, ...result },
+    { status: 201 }
+  );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveHouseContext } from "@/lib/auth-helpers";
 import { computeExpiresAt } from "@/lib/categories";
+import { addOrMergeItems } from "@/lib/pantry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,19 +58,20 @@ export async function POST(req: NextRequest) {
     ? new Date(body.expiresAt)
     : computeExpiresAt(body.normalizedCategory, purchasedAt);
 
-  const item = await prisma.pantryItem.create({
-    data: {
-      houseId,
-      purchasedById: userId,
-      rawName: String(body.rawName),
-      normalizedCategory: String(body.normalizedCategory),
-      quantity: Number(body.quantity) || 1,
-      unit: String(body.unit || "unit"),
-      purchasedAt,
-      expiresAt,
-      source: "manual",
-    },
-  });
+  // De-duplicate: merges into an existing un-consumed item if one matches.
+  const result = await prisma.$transaction((tx) =>
+    addOrMergeItems(tx, houseId, userId, [
+      {
+        rawName: String(body.rawName),
+        normalizedCategory: String(body.normalizedCategory),
+        quantity: Number(body.quantity) || 1,
+        unit: String(body.unit || "unit"),
+        purchasedAt,
+        expiresAt,
+        source: "manual",
+      },
+    ])
+  );
 
-  return NextResponse.json({ item }, { status: 201 });
+  return NextResponse.json(result, { status: 201 });
 }

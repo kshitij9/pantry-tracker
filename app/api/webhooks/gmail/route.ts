@@ -9,6 +9,7 @@ import {
 } from "@/lib/gmail";
 import { extractOrderFromEmail } from "@/lib/gemini";
 import { computeExpiresAt } from "@/lib/categories";
+import { addOrMergeItems } from "@/lib/pantry";
 
 // Gmail push notifications must be handled quickly; run on the Node runtime
 // (Prisma + googleapis are not edge-compatible) and never cache.
@@ -68,7 +69,13 @@ export async function POST(req: NextRequest) {
 
     // 4. Find candidate order messages and process the unseen ones.
     const messageIds = await findRecentOrderMessageIds();
-    const results: Array<{ messageId: string; status: string; itemCount?: number }> = [];
+    const results: Array<{
+      messageId: string;
+      status: string;
+      itemCount?: number;
+      created?: number;
+      merged?: number;
+    }> = [];
 
     for (const messageId of messageIds) {
       // Idempotency guard — skip messages we've already logged.
@@ -109,17 +116,20 @@ export async function POST(req: NextRequest) {
         parseDate(message.date) ?? parseDate(parsed.order_date) ?? new Date();
 
       // 6. Persist items + an OrderLog atomically.
-      const created = await prisma.$transaction(async (tx) => {
+      const outcome = await prisma.$transaction(async (tx) => {
         await tx.orderLog.create({
           data: { userId, houseId, messageId, platform },
         });
 
-        if (parsed.items.length === 0) return 0;
+        if (parsed.items.length === 0) return { created: 0, merged: 0 };
 
-        await tx.pantryItem.createMany({
-          data: parsed.items.map((item) => ({
-            houseId,
-            purchasedById: userId,
+        // De-duplicate: existing pantry items get their quantity bumped
+        // instead of spawning duplicate rows.
+        return addOrMergeItems(
+          tx,
+          houseId,
+          userId,
+          parsed.items.map((item) => ({
             rawName: item.name,
             normalizedCategory: item.category,
             quantity: item.quantity || 1,
@@ -127,12 +137,17 @@ export async function POST(req: NextRequest) {
             purchasedAt,
             expiresAt: computeExpiresAt(item.category, purchasedAt),
             source: platform,
-          })),
-        });
-        return parsed.items.length;
+          }))
+        );
       });
 
-      results.push({ messageId, status: "processed", itemCount: created });
+      results.push({
+        messageId,
+        status: "processed",
+        itemCount: outcome.created + outcome.merged,
+        created: outcome.created,
+        merged: outcome.merged,
+      });
     }
 
     return NextResponse.json({ ok: true, notification, results });
