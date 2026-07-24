@@ -11,6 +11,8 @@ import { authConfig } from "./auth.config";
 export const { auth: middleware } = NextAuth(authConfig);
 
 export const config = {
-  // Run on everything except Next internals, the auth API, and static assets.
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.png$).*)"],
+  // Run on everything except Next internals, the auth API, and static/PWA assets.
+  matcher: [
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|.*\\.png$).*)",
+  ],
 };

@@ -5,6 +5,7 @@ import { Plus, Check, Trash2, RefreshCw, Upload } from "lucide-react";
 import { ExpiryBadge } from "@/components/ExpiryBadge";
 import { AddItemModal } from "@/components/AddItemModal";
 import { UploadInvoiceModal } from "@/components/UploadInvoiceModal";
+import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { groupForCategory } from "@/lib/categories";
 
 interface PantryItem {
@@ -76,7 +77,8 @@ export default function DashboardPage() {
             {items.length} active item{items.length === 1 ? "" : "s"}, sorted by expiry.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <NotificationsToggle />
           <button
             onClick={load}
             className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800"

@@ -79,6 +79,7 @@ model User {
   orderLogs      OrderLog[]
   accounts       Account[]
   sessions       Session[]
+  pushSubscriptions PushSubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -148,11 +149,30 @@ model PantryItem {
   source     String  @default("manual") // "instamart" | "blinkit" | "zepto" | "manual"
   isConsumed Boolean @default(false)
 
+  /// Set when we've sent the "expiring soon" push, so we don't notify twice.
+  expiryNotifiedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([houseId, isConsumed, expiresAt])
   @@map("pantry_items")
+}
+
+/// A browser Web Push subscription belonging to a user (one per device/browser).
+model PushSubscription {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint String @unique
+  p256dh   String // client public key
+  auth     String // client auth secret
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 /// Idempotency + audit log of every order email we have processed.
