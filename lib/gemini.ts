@@ -128,6 +128,44 @@ export async function extractOrderFromEmail(
   return JSON.parse(text) as ParsedOrder;
 }
 
+/**
+ * Extract a structured order from an uploaded invoice/receipt file
+ * (image or PDF). Uses Gemini's multimodal input — the file bytes are sent
+ * inline as base64. Same schema as email extraction so downstream code is
+ * identical.
+ */
+export async function extractOrderFromInvoice(
+  base64Data: string,
+  mimeType: string
+): Promise<ParsedOrder> {
+  const model = getClient().getGenerativeModel({
+    model: MODEL_ID,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: ORDER_SCHEMA,
+      temperature: 0.1,
+    },
+  });
+
+  const prompt = [
+    "You are a receipt/invoice-parsing engine for a grocery pantry app.",
+    "Read the attached invoice (an image or PDF) and extract every purchased",
+    "product. Ignore delivery fees, taxes, discounts, tips, and totals.",
+    "Set order_type: 'grocery' for supermarket/grocery invoices, 'prepared_food'",
+    "for restaurant bills, or 'other'.",
+    `Classify each item into exactly one of these categories: ${KNOWN_CATEGORIES.join(", ")}.`,
+    "Read quantities and units from the line items; if ambiguous, default to",
+    "quantity 1 and unit 'pcs'. If no order date is visible, leave order_date empty.",
+  ].join("\n");
+
+  const result = await model.generateContent([
+    { text: prompt },
+    { inlineData: { data: base64Data, mimeType } },
+  ]);
+  const text = result.response.text();
+  return JSON.parse(text) as ParsedOrder;
+}
+
 // ---------------------------------------------------------------------------
 // 2. Pantry inventory -> recipe suggestions
 // ---------------------------------------------------------------------------

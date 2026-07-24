@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Check, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Check, Trash2, RefreshCw, Upload } from "lucide-react";
 import { ExpiryBadge } from "@/components/ExpiryBadge";
 import { AddItemModal } from "@/components/AddItemModal";
+import { UploadInvoiceModal } from "@/components/UploadInvoiceModal";
 import { groupForCategory } from "@/lib/categories";
 
 interface PantryItem {
@@ -30,6 +31,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<(typeof TABS)[number]>("All");
   const [modalOpen, setModalOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -80,6 +82,12 @@ export default function DashboardPage() {
             className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800"
           >
             <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800"
+          >
+            <Upload className="h-4 w-4" /> Upload invoice
           </button>
           <button
             onClick={() => setModalOpen(true)}
@@ -170,6 +178,11 @@ export default function DashboardPage() {
       )}
 
       <AddItemModal open={modalOpen} onClose={() => setModalOpen(false)} onAdded={load} />
+      <UploadInvoiceModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onAdded={load}
+      />
     </div>
   );
 }
