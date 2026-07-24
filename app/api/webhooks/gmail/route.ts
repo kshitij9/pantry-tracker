@@ -79,6 +79,17 @@ export async function POST(req: NextRequest) {
       // 5. Parse the email into structured items via Gemini.
       const parsed = await extractOrderFromEmail(message.body);
 
+      // Skip prepared-food/restaurant orders (e.g. Swiggy Food) — this is a
+      // grocery pantry tracker. We still log the message so it isn't
+      // re-parsed on the next notification.
+      if (parsed.order_type !== "grocery") {
+        await prisma.orderLog.create({
+          data: { userId: user.id, messageId, platform },
+        });
+        results.push({ messageId, status: `skipped:${parsed.order_type}` });
+        continue;
+      }
+
       // Prefer the email's own Date header as the purchase date — it's
       // authoritative and always has a year. Order emails often print a
       // yearless date ("Jul 23") that the model may resolve to the wrong

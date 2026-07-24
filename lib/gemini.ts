@@ -37,9 +37,12 @@ export interface ParsedOrderItem {
   category: string;
 }
 
+export type OrderType = "grocery" | "prepared_food" | "other";
+
 export interface ParsedOrder {
   vendor: string;
   order_date: string; // ISO-8601 date string, best-effort
+  order_type: OrderType; // grocery vs. restaurant/prepared-food vs. other
   items: ParsedOrderItem[];
 }
 
@@ -53,6 +56,15 @@ const ORDER_SCHEMA: Schema = {
     order_date: {
       type: SchemaType.STRING,
       description: "The order/delivery date in ISO-8601 (YYYY-MM-DD). Best-effort.",
+    },
+    order_type: {
+      type: SchemaType.STRING,
+      format: "enum",
+      enum: ["grocery", "prepared_food", "other"],
+      description:
+        "Classify the order: 'grocery' for raw groceries/supermarket items " +
+        "(Instamart/Blinkit/Zepto); 'prepared_food' for cooked meals from a " +
+        "restaurant (Swiggy Food, Zomato); 'other' for anything else.",
     },
     items: {
       type: SchemaType.ARRAY,
@@ -80,7 +92,7 @@ const ORDER_SCHEMA: Schema = {
       },
     },
   },
-  required: ["vendor", "order_date", "items"],
+  required: ["vendor", "order_date", "order_type", "items"],
 };
 
 /**
@@ -100,7 +112,9 @@ export async function extractOrderFromEmail(
 
   const prompt = [
     "You are a receipt-parsing engine for an Indian quick-commerce grocery app.",
-    "Extract every grocery product from the order email below.",
+    "First decide order_type: 'grocery' (raw supermarket items from Instamart/",
+    "Blinkit/Zepto), 'prepared_food' (cooked restaurant meals, e.g. Swiggy Food/",
+    "Zomato), or 'other'. Then extract every product from the order email below.",
     "Ignore delivery fees, taxes, discounts, tips, and non-grocery lines.",
     `For each item, classify it into exactly one of these categories: ${KNOWN_CATEGORIES.join(", ")}.`,
     "If a value is ambiguous, make a sensible default (quantity 1, unit 'pcs').",
