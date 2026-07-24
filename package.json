@@ -13,6 +13,7 @@
     "gmail:token": "node scripts/get-refresh-token.mjs",
     "gmail:test": "node scripts/gmail-test.mjs",
     "gmail:watch": "node scripts/gmail-watch.mjs",
+    "gemini:test": "node scripts/gemini-test.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

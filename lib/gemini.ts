@@ -14,7 +14,9 @@ import { KNOWN_CATEGORIES } from "./categories";
  * that we can parse without brittle regex/string surgery.
  */
 
-const MODEL_ID = "gemini-2.5-flash";
+// Overridable via env so a model rename/gating never requires a code change.
+// `gemini-flash-latest` tracks Google's current flash model.
+const MODEL_ID = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 function getClient(): GoogleGenerativeAI {
   const apiKey = process.env.GEMINI_API_KEY;
