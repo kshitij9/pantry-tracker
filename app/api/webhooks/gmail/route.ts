@@ -14,6 +14,9 @@ import { computeExpiresAt } from "@/lib/categories";
 // (Prisma + googleapis are not edge-compatible) and never cache.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Processing several emails through Gemini can take a while — give the
+// serverless function room (max 60s on Vercel Hobby, up to 300s on Pro).
+export const maxDuration = 60;
 
 /**
  * POST /api/webhooks/gmail

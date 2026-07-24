@@ -5,6 +5,8 @@ import { generateRecipes, type InventoryLine } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Recipe generation makes a Gemini call — allow extra time on Vercel.
+export const maxDuration = 60;
 
 /**
  * POST /api/recipes
