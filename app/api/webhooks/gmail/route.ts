@@ -78,7 +78,13 @@ export async function POST(req: NextRequest) {
 
       // 5. Parse the email into structured items via Gemini.
       const parsed = await extractOrderFromEmail(message.body);
-      const purchasedAt = parseDate(parsed.order_date) ?? new Date();
+
+      // Prefer the email's own Date header as the purchase date — it's
+      // authoritative and always has a year. Order emails often print a
+      // yearless date ("Jul 23") that the model may resolve to the wrong
+      // year, so treat the model's order_date only as a last-resort fallback.
+      const purchasedAt =
+        parseDate(message.date) ?? parseDate(parsed.order_date) ?? new Date();
 
       // 6. Persist items + an OrderLog atomically.
       const created = await prisma.$transaction(async (tx) => {
