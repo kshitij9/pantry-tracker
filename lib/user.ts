@@ -1,27 +1,23 @@
 import { prisma } from "./prisma";
 
 /**
- * Resolve (and lazily create) a user by email.
+ * User lookup helpers.
  *
- * NOTE: This scaffold does not include auth. For a single-tenant dev setup we
- * attribute all data to DEV_DEFAULT_USER_EMAIL. In production, replace calls to
- * `getCurrentUser` with your real session/auth lookup (e.g. NextAuth).
+ * With real authentication (Auth.js), users are created on sign-in. The Gmail
+ * webhook has no session, so it resolves the mailbox owner by email to decide
+ * which house an incoming order belongs to.
  */
-export async function getOrCreateUser(email: string) {
-  return prisma.user.upsert({
-    where: { email },
-    update: {},
-    create: { email },
-  });
-}
 
-/** Returns the "current" user for this scaffold (dev default). */
-export async function getCurrentUser() {
-  const email = process.env.DEV_DEFAULT_USER_EMAIL;
-  if (!email) {
-    throw new Error(
-      "DEV_DEFAULT_USER_EMAIL is not set. In production, wire this to real auth."
-    );
-  }
-  return getOrCreateUser(email);
+/**
+ * Resolve the user + their active house for an inbound Gmail notification.
+ * Returns null if the email isn't a registered user or they haven't onboarded
+ * into a house yet (in which case we can't attribute the order).
+ */
+export async function resolveWebhookTarget(email: string) {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, activeHouseId: true },
+  });
+  if (!user || !user.activeHouseId) return null;
+  return { userId: user.id, houseId: user.activeHouseId };
 }

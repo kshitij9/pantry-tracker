@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/user";
+import { resolveHouseContext } from "@/lib/auth-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * PATCH /api/pantry/[id]
- * Update a single item. Supports:
+ * Update a single item in the active house. Supports:
  *   { isConsumed: boolean }          -> toggle consumed state
  *   { decrement: number }            -> decrement quantity; auto-consume at <= 0
  *   { quantity, unit, ... }          -> arbitrary field updates
@@ -16,12 +16,15 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await getCurrentUser();
+  const resolved = await resolveHouseContext();
+  if (!resolved.ok) return resolved.response;
+  const { houseId } = resolved.ctx;
+
   const body = await req.json().catch(() => ({}));
 
-  // Ensure the item belongs to this user before mutating.
+  // Ensure the item belongs to the caller's active house before mutating.
   const existing = await prisma.pantryItem.findFirst({
-    where: { id: params.id, userId: user.id },
+    where: { id: params.id, houseId },
   });
   if (!existing) {
     return NextResponse.json({ error: "Item not found." }, { status: 404 });
@@ -57,16 +60,18 @@ export async function PATCH(
 
 /**
  * DELETE /api/pantry/[id]
- * Permanently remove a pantry item.
+ * Permanently remove a pantry item from the active house.
  */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await getCurrentUser();
+  const resolved = await resolveHouseContext();
+  if (!resolved.ok) return resolved.response;
+  const { houseId } = resolved.ctx;
 
   const existing = await prisma.pantryItem.findFirst({
-    where: { id: params.id, userId: user.id },
+    where: { id: params.id, houseId },
   });
   if (!existing) {
     return NextResponse.json({ error: "Item not found." }, { status: 404 });

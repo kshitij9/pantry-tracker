@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/user";
+import { resolveHouseContext } from "@/lib/auth-helpers";
 import { computeExpiresAt } from "@/lib/categories";
 
 export const runtime = "nodejs";
@@ -8,20 +8,27 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/pantry
- * List active (unconsumed) pantry items for the current user, sorted by
- * soonest expiry first. Optional `?includeConsumed=true` to include all.
+ * List active (unconsumed) pantry items for the caller's active house,
+ * soonest-expiry first. Includes who purchased each item. Optional
+ * `?includeConsumed=true` to include all.
  */
 export async function GET(req: NextRequest) {
-  const user = await getCurrentUser();
+  const resolved = await resolveHouseContext();
+  if (!resolved.ok) return resolved.response;
+  const { houseId } = resolved.ctx;
+
   const includeConsumed =
     req.nextUrl.searchParams.get("includeConsumed") === "true";
 
   const items = await prisma.pantryItem.findMany({
     where: {
-      userId: user.id,
+      houseId,
       ...(includeConsumed ? {} : { isConsumed: false }),
     },
     orderBy: { expiresAt: "asc" },
+    include: {
+      purchasedBy: { select: { id: true, name: true, email: true, image: true } },
+    },
   });
 
   return NextResponse.json({ items });
@@ -29,14 +36,15 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/pantry
- * Manually add a pantry item. Body:
- *   { rawName, normalizedCategory, quantity?, unit?, purchasedAt?, expiresAt? }
- * If `expiresAt` is omitted, it's computed from the category shelf-life.
+ * Manually add a pantry item to the active house, attributed to the caller.
+ * Body: { rawName, normalizedCategory, quantity?, unit?, purchasedAt?, expiresAt? }
  */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
-  const body = await req.json().catch(() => null);
+  const resolved = await resolveHouseContext();
+  if (!resolved.ok) return resolved.response;
+  const { houseId, userId } = resolved.ctx;
 
+  const body = await req.json().catch(() => null);
   if (!body?.rawName || !body?.normalizedCategory) {
     return NextResponse.json(
       { error: "rawName and normalizedCategory are required." },
@@ -51,7 +59,8 @@ export async function POST(req: NextRequest) {
 
   const item = await prisma.pantryItem.create({
     data: {
-      userId: user.id,
+      houseId,
+      purchasedById: userId,
       rawName: String(body.rawName),
       normalizedCategory: String(body.normalizedCategory),
       quantity: Number(body.quantity) || 1,

@@ -14,53 +14,163 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-/// A registered user of the app. Orders and pantry items belong to a user.
-model User {
-  id         String       @id @default(cuid())
-  email      String       @unique
-  createdAt  DateTime     @default(now())
+// ===========================================================================
+// Auth.js (NextAuth v5) adapter models
+// Required by @auth/prisma-adapter. `Account`/`Session`/`VerificationToken`
+// are managed by Auth.js; do not write to them directly.
+// ===========================================================================
 
-  pantryItems PantryItem[]
-  orderLogs   OrderLog[]
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ===========================================================================
+// Domain models
+// ===========================================================================
+
+/// A registered user. Authenticates via Auth.js; belongs to one or more Houses.
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? // set by Auth.js
+  image         String?
+
+  /// The house whose pantry the user is currently viewing/acting on.
+  activeHouseId String?
+
+  memberships    HouseMember[]
+  purchasedItems PantryItem[]  @relation("PurchasedBy")
+  orderLogs      OrderLog[]
+  accounts       Account[]
+  sessions       Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("users")
 }
 
-/// A single physical item currently (or formerly) in the user's pantry.
+/// A shared household pantry. Members collaborate on one inventory.
+model House {
+  id          String @id @default(cuid())
+  name        String
+  createdById String
+
+  /// Shareable code used to join the house via invite link.
+  joinCode String @unique @default(cuid())
+
+  members     HouseMember[]
+  pantryItems PantryItem[]
+  orderLogs   OrderLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("houses")
+}
+
+/// Join table linking a User to a House with a role.
+model HouseMember {
+  id       String   @id @default(cuid())
+  userId   String
+  houseId  String
+  role     Role     @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  house House @relation(fields: [houseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, houseId])
+  @@index([houseId])
+  @@map("house_members")
+}
+
+enum Role {
+  OWNER
+  MEMBER
+}
+
+/// A single physical item currently (or formerly) in a house's pantry.
 model PantryItem {
-  id                 String   @id @default(cuid())
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  houseId String
+  house   House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
 
-  rawName            String   // Original name as it appeared on the order (e.g. "Amul Taaza Milk 500ml")
-  normalizedCategory String   // One of the categories in lib/categories.ts (e.g. "Dairy")
-  quantity           Float    @default(1)
-  unit               String   @default("unit") // e.g. "pcs", "g", "ml", "pack"
+  /// Who bought/added this item (member-level attribution). Nullable so an
+  /// item survives if the purchasing member is later removed.
+  purchasedById String?
+  purchasedBy   User?   @relation("PurchasedBy", fields: [purchasedById], references: [id], onDelete: SetNull)
 
-  purchasedAt        DateTime @default(now())
-  expiresAt          DateTime // Computed from category shelf-life defaults
+  rawName            String // Original name as it appeared on the order (e.g. "Amul Taaza Milk 500ml")
+  normalizedCategory String // One of the categories in lib/categories.ts (e.g. "Dairy")
+  quantity           Float  @default(1)
+  unit               String @default("unit") // e.g. "pcs", "g", "ml", "pack"
 
-  source             String   @default("manual") // "instamart" | "blinkit" | "zepto" | "manual"
-  isConsumed         Boolean  @default(false)
+  purchasedAt DateTime @default(now())
+  expiresAt   DateTime // Computed from category shelf-life defaults
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  source     String  @default("manual") // "instamart" | "blinkit" | "zepto" | "manual"
+  isConsumed Boolean @default(false)
 
-  @@index([userId, isConsumed, expiresAt])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([houseId, isConsumed, expiresAt])
   @@map("pantry_items")
 }
 
 /// Idempotency + audit log of every order email we have processed.
 model OrderLog {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  houseId String
+  house   House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
 
-  messageId   String   // Gmail message id — used to avoid double-processing
-  platform    String   // "instamart" | "blinkit" | "zepto"
+  /// The member whose mailbox the order arrived in.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messageId   String // Gmail message id — used to avoid double-processing
+  platform    String // "instamart" | "blinkit" | "zepto"
   processedAt DateTime @default(now())
 
   @@unique([messageId])
+  @@index([houseId])
   @@index([userId])
   @@map("order_logs")
 }

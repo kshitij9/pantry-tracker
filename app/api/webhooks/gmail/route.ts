@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/user";
+import { resolveWebhookTarget } from "@/lib/user";
 import {
   fetchMessage,
   findRecentOrderMessageIds,
@@ -51,9 +51,20 @@ export async function POST(req: NextRequest) {
       notification = JSON.parse(decoded);
     }
 
-    // 3. Resolve which user this mailbox belongs to.
-    //    (Scaffold: single dev user. Production: look up by notification.emailAddress.)
-    const user = await getCurrentUser();
+    // 3. Resolve which registered user (and thus which house) this mailbox
+    //    belongs to, based on the notification's emailAddress. If the address
+    //    isn't a signed-up user, or they haven't onboarded into a house yet,
+    //    we can't attribute the order — acknowledge and stop.
+    const email = notification.emailAddress;
+    const target = email ? await resolveWebhookTarget(email) : null;
+    if (!target) {
+      return NextResponse.json({
+        ok: true,
+        notification,
+        results: [{ status: "skipped:no-house-for-mailbox" }],
+      });
+    }
+    const { userId, houseId } = target;
 
     // 4. Find candidate order messages and process the unseen ones.
     const messageIds = await findRecentOrderMessageIds();
@@ -84,7 +95,7 @@ export async function POST(req: NextRequest) {
       // re-parsed on the next notification.
       if (parsed.order_type !== "grocery") {
         await prisma.orderLog.create({
-          data: { userId: user.id, messageId, platform },
+          data: { userId, houseId, messageId, platform },
         });
         results.push({ messageId, status: `skipped:${parsed.order_type}` });
         continue;
@@ -100,14 +111,15 @@ export async function POST(req: NextRequest) {
       // 6. Persist items + an OrderLog atomically.
       const created = await prisma.$transaction(async (tx) => {
         await tx.orderLog.create({
-          data: { userId: user.id, messageId, platform },
+          data: { userId, houseId, messageId, platform },
         });
 
         if (parsed.items.length === 0) return 0;
 
         await tx.pantryItem.createMany({
           data: parsed.items.map((item) => ({
-            userId: user.id,
+            houseId,
+            purchasedById: userId,
             rawName: item.name,
             normalizedCategory: item.category,
             quantity: item.quantity || 1,

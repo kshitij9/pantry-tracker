@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/user";
+import { resolveHouseContext } from "@/lib/auth-helpers";
 import { generateRecipes, type InventoryLine } from "@/lib/gemini";
 
 export const runtime = "nodejs";
@@ -10,17 +10,20 @@ export const maxDuration = 60;
 
 /**
  * POST /api/recipes
- * Fetch the user's unconsumed pantry (soonest-expiring first) and ask Gemini
- * for 3 recipes. Optional body `{ limit?: number }` caps how many items we send.
+ * Fetch the active house's unconsumed pantry (soonest-expiring first) and ask
+ * Gemini for 3 recipes. Optional body `{ limit?: number }`.
  */
 export async function POST(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const resolved = await resolveHouseContext();
+    if (!resolved.ok) return resolved.response;
+    const { houseId } = resolved.ctx;
+
     const body = await req.json().catch(() => ({}));
     const limit = Number(body?.limit) || 25;
 
     const items = await prisma.pantryItem.findMany({
-      where: { userId: user.id, isConsumed: false },
+      where: { houseId, isConsumed: false },
       orderBy: { expiresAt: "asc" },
       take: limit,
     });
@@ -48,9 +51,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ recipes });
   } catch (err) {
     console.error("[recipes] error:", err);
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

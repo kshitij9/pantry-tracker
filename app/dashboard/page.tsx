@@ -15,6 +15,12 @@ interface PantryItem {
   expiresAt: string;
   source: string;
   isConsumed: boolean;
+  purchasedBy: {
+    id: string;
+    name: string | null;
+    email: string;
+    image: string | null;
+  } | null;
 }
 
 const TABS = ["All", "Produce", "Dairy", "Staples", "Snacks"] as const;
@@ -119,8 +125,27 @@ export default function DashboardPage() {
                 <p className="text-xs text-neutral-500">
                   {item.quantity} {item.unit} · {item.normalizedCategory} · {item.source}
                 </p>
-                <div className="mt-2">
+                <div className="mt-2 flex items-center gap-2">
                   <ExpiryBadge expiresAt={item.expiresAt} />
+                  {item.purchasedBy && (
+                    <span
+                      className="flex items-center gap-1 text-xs text-neutral-400"
+                      title={`Added by ${item.purchasedBy.name ?? item.purchasedBy.email}`}
+                    >
+                      {item.purchasedBy.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.purchasedBy.image}
+                          alt=""
+                          width={16}
+                          height={16}
+                          className="rounded-full"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : null}
+                      {(item.purchasedBy.name ?? item.purchasedBy.email).split(" ")[0]}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex shrink-0 flex-col gap-1.5">
