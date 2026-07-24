@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
         normalizedCategory: category,
         quantity,
         unit,
+        weightInferred: item.weight_inferred ?? false,
         purchasedAt: purchasedAt.toISOString(),
         expiresAt: computeExpiresAt(category, purchasedAt).toISOString(),
       };

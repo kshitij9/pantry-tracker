@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { X, Upload, FileText, Loader2, Trash2 } from "lucide-react";
+import { X, Upload, FileText, Loader2, Trash2, Sparkles } from "lucide-react";
 import { KNOWN_CATEGORIES } from "@/lib/categories";
 
 interface ReviewItem {
@@ -10,6 +10,7 @@ interface ReviewItem {
   normalizedCategory: string;
   quantity: number;
   unit: string;
+  weightInferred?: boolean;
   purchasedAt: string;
   expiresAt: string;
 }
@@ -167,7 +168,9 @@ export function UploadInvoiceModal({
               <p className="flex items-center gap-1.5 text-sm text-neutral-500">
                 <FileText className="h-4 w-4" />
                 {vendor ? `From ${vendor} · ` : ""}
-                {items.length} item{items.length === 1 ? "" : "s"} found. Uncheck any you don’t want.
+                {items.length} item{items.length === 1 ? "" : "s"} found. Rows marked{" "}
+                <span className="font-medium text-amber-700 dark:text-amber-300">est.</span>{" "}
+                had their weight estimated from price — double-check them.
               </p>
 
               <ul className="space-y-2">
@@ -204,6 +207,14 @@ export function UploadInvoiceModal({
                       onChange={(e) => updateItem(i, { unit: e.target.value })}
                       className="w-16 rounded-md border border-neutral-300 bg-transparent px-2 py-1 text-sm dark:border-neutral-700"
                     />
+                    {item.weightInferred && (
+                      <span
+                        title="Weight estimated from price — please double-check"
+                        className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                      >
+                        <Sparkles className="h-3 w-3" /> est.
+                      </span>
+                    )}
                     <select
                       value={item.normalizedCategory}
                       onChange={(e) => updateItem(i, { normalizedCategory: e.target.value })}
