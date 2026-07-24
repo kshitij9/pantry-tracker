@@ -6,6 +6,7 @@ import { ExpiryBadge } from "@/components/ExpiryBadge";
 import { AddItemModal } from "@/components/AddItemModal";
 import { UploadInvoiceModal } from "@/components/UploadInvoiceModal";
 import { NotificationsToggle } from "@/components/NotificationsToggle";
+import { QuickLog } from "@/components/meals/QuickLog";
 import { groupForCategory } from "@/lib/categories";
 
 interface PantryItem {
@@ -99,6 +100,8 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      <QuickLog onLogged={load} />
 
       {/* Category filter tabs */}
       <div className="flex flex-wrap gap-1.5">

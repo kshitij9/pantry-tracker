@@ -59,7 +59,7 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const activeHouseId = auth?.user?.activeHouseId ?? null;
 
-      const protectedPrefixes = ["/dashboard", "/recipes", "/house"];
+      const protectedPrefixes = ["/dashboard", "/recipes", "/house", "/meals"];
       const isProtected = protectedPrefixes.some((p) => pathname.startsWith(p));
       const isOnboarding = pathname.startsWith("/onboarding");
 

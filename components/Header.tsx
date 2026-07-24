@@ -9,6 +9,7 @@ import {
   Home,
   LogOut,
   LogIn,
+  UtensilsCrossed,
 } from "lucide-react";
 
 /** Top navigation bar. Adapts to the auth state. */
@@ -29,6 +30,9 @@ export function Header() {
             <>
               <NavLink href="/dashboard" icon={<LayoutGrid className="h-4 w-4" />}>
                 Dashboard
+              </NavLink>
+              <NavLink href="/meals" icon={<UtensilsCrossed className="h-4 w-4" />}>
+                Meals
               </NavLink>
               <NavLink href="/recipes" icon={<ChefHat className="h-4 w-4" />}>
                 Recipes

@@ -80,6 +80,8 @@ model User {
   accounts       Account[]
   sessions       Session[]
   pushSubscriptions PushSubscription[]
+  createdMealTemplates MealTemplate[] @relation("MealTemplateCreatedBy")
+  loggedMeals          MealLog[]      @relation("MealLogLoggedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -99,6 +101,8 @@ model House {
   members     HouseMember[]
   pantryItems PantryItem[]
   orderLogs   OrderLog[]
+  mealTemplates MealTemplate[]
+  mealLogs      MealLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -152,6 +156,8 @@ model PantryItem {
   /// Set when we've sent the "expiring soon" push, so we don't notify twice.
   expiryNotifiedAt DateTime?
 
+  mealDeductions MealLogDeduction[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -173,6 +179,122 @@ model PushSubscription {
 
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+// ===========================================================================
+// Meal logging
+// ===========================================================================
+
+/// How a meal log was created. Extensible for future input methods
+/// (barcode/voice/AI) without schema changes to consumers.
+enum MealSource {
+  TEMPLATE
+  ADHOC
+  AI
+  BARCODE
+  VOICE
+  RECURRING
+}
+
+/// A reusable meal definition (e.g. "Coffee") with a list of ingredients.
+/// Ingredients are stored by NAME (not pantry-item id) so they match against
+/// whatever inventory exists at log time.
+model MealTemplate {
+  id          String  @id @default(cuid())
+  houseId     String
+  house       House   @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?   @relation("MealTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  name       String
+  icon       String  @default("🍽️")
+  isFavorite Boolean @default(false)
+
+  /// Open-ended bag for future features (nutrition, tags, recurring config).
+  metadata Json?
+
+  ingredients MealTemplateIngredient[]
+  mealLogs    MealLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([houseId])
+  @@map("meal_templates")
+}
+
+/// One ingredient line of a template. Not tied to any pantry item.
+model MealTemplateIngredient {
+  id         String @id @default(cuid())
+  templateId String
+  template   MealTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name     String // e.g. "Milk"
+  quantity Float  @default(1)
+  unit     String @default("pcs")
+
+  /// Optional extra names/brands to help the matcher (e.g. ["Amul", "Nandini"]).
+  aliases  String[] @default([])
+  /// If true, a missing match won't block logging.
+  optional Boolean  @default(false)
+  sortOrder Int     @default(0)
+
+  @@index([templateId])
+  @@map("meal_template_ingredients")
+}
+
+/// A recorded meal. Deductions capture exactly what was removed, enabling undo.
+model MealLog {
+  id         String @id @default(cuid())
+  houseId    String
+  house      House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  loggedById String?
+  loggedBy   User?  @relation("MealLogLoggedBy", fields: [loggedById], references: [id], onDelete: SetNull)
+  templateId String?
+  template   MealTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  name    String
+  icon    String     @default("🍽️")
+  source  MealSource @default(TEMPLATE)
+  note    String?
+  metadata Json?
+
+  loggedAt DateTime  @default(now())
+  /// Set when the log is undone; deductions are restored and it's hidden.
+  undoneAt DateTime?
+
+  deductions MealLogDeduction[]
+
+  createdAt DateTime @default(now())
+
+  @@index([houseId, loggedAt])
+  @@map("meal_logs")
+}
+
+/// A single draw from inventory for one ingredient of a meal log.
+/// One ingredient may span several rows (FIFO across multiple pantry items).
+/// Rows also record missing/skipped ingredients (pantryItemId = null).
+model MealLogDeduction {
+  id        String  @id @default(cuid())
+  mealLogId String
+  mealLog   MealLog @relation(fields: [mealLogId], references: [id], onDelete: Cascade)
+
+  ingredientName String
+  requestedQty   Float
+  requestedUnit  String
+  status         String // "deducted" | "partial" | "missing" | "skipped" | "unit_mismatch"
+
+  /// The pantry item drawn from (null for missing/skipped lines).
+  pantryItemId String?
+  pantryItem   PantryItem? @relation(fields: [pantryItemId], references: [id], onDelete: SetNull)
+  /// Amount removed, expressed in the pantry item's own unit (for exact undo).
+  deductedQty     Float   @default(0)
+  deductedUnit    String?
+  /// Whether this deduction set the pantry item to consumed (restore on undo).
+  consumedFlagged Boolean @default(false)
+
+  @@index([mealLogId])
+  @@map("meal_log_deductions")
 }
 
 /// Idempotency + audit log of every order email we have processed.
