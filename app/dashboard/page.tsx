@@ -64,11 +64,12 @@ export default function DashboardPage() {
       const res = await fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days: 7 }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sync failed");
-      const { totalCreated = 0, totalMerged = 0 } = data;
+      const { totalCreated = 0, totalMerged = 0, note } = data;
       if (totalCreated + totalMerged === 0) {
-        setSyncResult("No new orders found in the last 7 days.");
+        setSyncResult(note ?? "No new orders found in the last 7 days.");
       } else {
-        setSyncResult(`Synced: ${totalCreated} new item${totalCreated !== 1 ? "s" : ""}, ${totalMerged} updated.`);
+        const base = `Synced: ${totalCreated} new item${totalCreated !== 1 ? "s" : ""}, ${totalMerged} updated.`;
+        setSyncResult(note ? `${base} ${note}` : base);
         load();
       }
     } catch (err) {
