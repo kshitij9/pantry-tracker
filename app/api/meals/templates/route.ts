@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const r = await resolveHouseContext();
   if (!r.ok) return r.response;
-  return NextResponse.json({ templates: await listTemplates(r.ctx.houseId) });
+  return NextResponse.json({ templates: await listTemplates() });
 }
 
 /** POST /api/meals/templates — create a template. Body: { name, icon?, isFavorite?, ingredients[] }. */
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const template = await createTemplate(r.ctx.houseId, r.ctx.userId, {
+  const template = await createTemplate(r.ctx.userId, {
     name: body.name,
     icon: body.icon,
     isFavorite: body.isFavorite,

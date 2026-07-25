@@ -201,7 +201,7 @@ export async function undoMeal(houseId: string, logId: string): Promise<boolean>
  */
 export async function getSuggestions(houseId: string, limit = 6): Promise<SuggestionDTO[]> {
   const [templates, usage] = await Promise.all([
-    listTemplates(houseId),
+    listTemplates(),
     recentTemplateUsage(houseId),
   ]);
 

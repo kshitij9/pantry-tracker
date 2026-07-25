@@ -39,18 +39,18 @@ function toTemplateDTO(t: Prisma.MealTemplateGetPayload<{ include: { ingredients
   };
 }
 
-export async function listTemplates(houseId: string): Promise<TemplateDTO[]> {
+/** List all templates globally — templates are shared across all users and houses. */
+export async function listTemplates(): Promise<TemplateDTO[]> {
   const templates = await prisma.mealTemplate.findMany({
-    where: { houseId },
     include: { ingredients: true },
     orderBy: [{ isFavorite: "desc" }, { name: "asc" }],
   });
   return templates.map(toTemplateDTO);
 }
 
-export async function getTemplate(houseId: string, id: string): Promise<TemplateDTO | null> {
-  const t = await prisma.mealTemplate.findFirst({
-    where: { id, houseId },
+export async function getTemplate(id: string): Promise<TemplateDTO | null> {
+  const t = await prisma.mealTemplate.findUnique({
+    where: { id },
     include: { ingredients: true },
   });
   return t ? toTemplateDTO(t) : null;
@@ -77,13 +77,11 @@ function ingredientCreateData(ingredients: IngredientSpec[]) {
 }
 
 export async function createTemplate(
-  houseId: string,
   userId: string,
   input: TemplateInput
 ): Promise<TemplateDTO> {
   const t = await prisma.mealTemplate.create({
     data: {
-      houseId,
       createdById: userId,
       name: input.name.trim(),
       icon: input.icon || "🍽️",
@@ -96,11 +94,10 @@ export async function createTemplate(
 }
 
 export async function updateTemplate(
-  houseId: string,
   id: string,
   input: TemplateInput
 ): Promise<TemplateDTO | null> {
-  const existing = await prisma.mealTemplate.findFirst({ where: { id, houseId } });
+  const existing = await prisma.mealTemplate.findUnique({ where: { id } });
   if (!existing) return null;
 
   // Replace ingredient set wholesale (simplest correct approach).
@@ -121,13 +118,12 @@ export async function updateTemplate(
 }
 
 export async function duplicateTemplate(
-  houseId: string,
   userId: string,
   id: string
 ): Promise<TemplateDTO | null> {
-  const src = await getTemplate(houseId, id);
+  const src = await getTemplate(id);
   if (!src) return null;
-  return createTemplate(houseId, userId, {
+  return createTemplate(userId, {
     name: `${src.name} (copy)`,
     icon: src.icon,
     isFavorite: false,
@@ -135,8 +131,8 @@ export async function duplicateTemplate(
   });
 }
 
-export async function deleteTemplate(houseId: string, id: string): Promise<boolean> {
-  const res = await prisma.mealTemplate.deleteMany({ where: { id, houseId } });
+export async function deleteTemplate(id: string): Promise<boolean> {
+  const res = await prisma.mealTemplate.deleteMany({ where: { id } });
   return res.count > 0;
 }
 

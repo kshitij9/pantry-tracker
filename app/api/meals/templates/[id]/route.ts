@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const r = await resolveHouseContext();
   if (!r.ok) return r.response;
-  const template = await getTemplate(r.ctx.houseId, params.id);
+  const template = await getTemplate(params.id);
   if (!template) return NextResponse.json({ error: "Not found." }, { status: 404 });
   return NextResponse.json({ template });
 }
@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!body?.name?.trim() || !Array.isArray(body.ingredients)) {
     return NextResponse.json({ error: "name and ingredients[] are required." }, { status: 400 });
   }
-  const template = await updateTemplate(r.ctx.houseId, params.id, {
+  const template = await updateTemplate(params.id, {
     name: body.name,
     icon: body.icon,
     isFavorite: body.isFavorite,
@@ -37,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const r = await resolveHouseContext();
   if (!r.ok) return r.response;
-  const ok = await deleteTemplate(r.ctx.houseId, params.id);
+  const ok = await deleteTemplate(params.id);
   if (!ok) return NextResponse.json({ error: "Not found." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

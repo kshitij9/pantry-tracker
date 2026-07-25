@@ -199,10 +199,12 @@ enum MealSource {
 /// A reusable meal definition (e.g. "Coffee") with a list of ingredients.
 /// Ingredients are stored by NAME (not pantry-item id) so they match against
 /// whatever inventory exists at log time.
+/// Templates are global — visible and usable by all users across all houses.
 model MealTemplate {
   id          String  @id @default(cuid())
-  houseId     String
-  house       House   @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  /// Nullable: templates are not scoped to a house. Kept for historical rows.
+  houseId     String?
+  house       House?  @relation(fields: [houseId], references: [id], onDelete: SetNull)
   createdById String?
   createdBy   User?   @relation("MealTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -219,7 +221,6 @@ model MealTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([houseId])
   @@map("meal_templates")
 }
 
