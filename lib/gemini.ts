@@ -2,6 +2,8 @@ import {
   GoogleGenerativeAI,
   SchemaType,
   type Schema,
+  type Part,
+  type GenerationConfig,
 } from "@google/generative-ai";
 import { KNOWN_CATEGORIES } from "./categories";
 
@@ -14,9 +16,20 @@ import { KNOWN_CATEGORIES } from "./categories";
  * that we can parse without brittle regex/string surgery.
  */
 
-// Overridable via env so a model rename/gating never requires a code change.
-// `gemini-flash-latest` tracks Google's current flash model.
-const MODEL_ID = process.env.GEMINI_MODEL || "gemini-flash-latest";
+// Models tried in order. The env-configured model first (so ops can steer it
+// without a deploy), then fallbacks. Free-tier quota is per-model-per-day, and
+// different models are throttled at different times, so if one returns 429
+// (rate-limited) or 404 (gated for this account) we transparently try the next.
+const MODEL_FALLBACKS = Array.from(
+  new Set(
+    [
+      process.env.GEMINI_MODEL || "gemini-flash-latest",
+      "gemini-2.0-flash",
+      "gemini-3.6-flash",
+      "gemini-flash-latest",
+    ].filter(Boolean)
+  )
+);
 
 function getClient(): GoogleGenerativeAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -24,6 +37,33 @@ function getClient(): GoogleGenerativeAI {
     throw new Error("GEMINI_API_KEY is not set. See .env.example.");
   }
   return new GoogleGenerativeAI(apiKey);
+}
+
+/**
+ * Run `generateContent` against the fallback model list. On a 429 (quota) or
+ * 404 (model gated/unknown) we move to the next model; any other error throws
+ * immediately. If every model is exhausted, the last error propagates.
+ */
+async function generateWithFallback(
+  generationConfig: GenerationConfig,
+  content: string | Array<string | Part>
+) {
+  let lastErr: unknown;
+  for (const modelId of MODEL_FALLBACKS) {
+    try {
+      const model = getClient().getGenerativeModel({ model: modelId, generationConfig });
+      return await model.generateContent(content);
+    } catch (err) {
+      lastErr = err;
+      const status = (err as { status?: number }).status;
+      if (status === 429 || status === 404) {
+        console.warn(`[gemini] ${modelId} unavailable (${status}); trying next model`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,15 +181,6 @@ const WEIGHT_INFERENCE_RULES = [
 export async function extractOrderFromEmail(
   emailBody: string
 ): Promise<ParsedOrder> {
-  const model = getClient().getGenerativeModel({
-    model: MODEL_ID,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: ORDER_SCHEMA,
-      temperature: 0.1,
-    },
-  });
-
   const prompt = [
     WEIGHT_INFERENCE_RULES,
     "",
@@ -163,7 +194,14 @@ export async function extractOrderFromEmail(
     emailBody.slice(0, 30_000), // guard against oversized emails
   ].join("\n");
 
-  const result = await model.generateContent(prompt);
+  const result = await generateWithFallback(
+    {
+      responseMimeType: "application/json",
+      responseSchema: ORDER_SCHEMA,
+      temperature: 0.1,
+    },
+    prompt
+  );
   const text = result.response.text();
   return JSON.parse(text) as ParsedOrder;
 }
@@ -178,15 +216,6 @@ export async function extractOrderFromInvoice(
   base64Data: string,
   mimeType: string
 ): Promise<ParsedOrder> {
-  const model = getClient().getGenerativeModel({
-    model: MODEL_ID,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: ORDER_SCHEMA,
-      temperature: 0.1,
-    },
-  });
-
   const prompt = [
     WEIGHT_INFERENCE_RULES,
     "",
@@ -199,10 +228,17 @@ export async function extractOrderFromInvoice(
     "If no order date is visible, leave order_date empty.",
   ].join("\n");
 
-  const result = await model.generateContent([
-    { text: prompt },
-    { inlineData: { data: base64Data, mimeType } },
-  ]);
+  const result = await generateWithFallback(
+    {
+      responseMimeType: "application/json",
+      responseSchema: ORDER_SCHEMA,
+      temperature: 0.1,
+    },
+    [
+      { text: prompt },
+      { inlineData: { data: base64Data, mimeType } },
+    ]
+  );
   const text = result.response.text();
   return JSON.parse(text) as ParsedOrder;
 }
@@ -249,15 +285,6 @@ const MEAL_INGREDIENTS_SCHEMA: Schema = {
 export async function suggestMealIngredients(
   mealName: string
 ): Promise<SuggestedIngredient[]> {
-  const model = getClient().getGenerativeModel({
-    model: MODEL_ID,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: MEAL_INGREDIENTS_SCHEMA,
-      temperature: 0.3,
-    },
-  });
-
   const prompt = [
     "You are a culinary assistant for an Indian household pantry app.",
     `List the core ingredients to make ONE serving of: "${mealName}".`,
@@ -267,7 +294,14 @@ export async function suggestMealIngredients(
     "Keep it to the main ingredients (roughly 3-10). Skip water and plain garnish.",
   ].join("\n");
 
-  const result = await model.generateContent(prompt);
+  const result = await generateWithFallback(
+    {
+      responseMimeType: "application/json",
+      responseSchema: MEAL_INGREDIENTS_SCHEMA,
+      temperature: 0.3,
+    },
+    prompt
+  );
   const parsed = JSON.parse(result.response.text()) as { ingredients: SuggestedIngredient[] };
   return parsed.ingredients ?? [];
 }
@@ -347,15 +381,6 @@ export interface InventoryLine {
 export async function generateRecipes(
   inventory: InventoryLine[]
 ): Promise<RecipeResponse> {
-  const model = getClient().getGenerativeModel({
-    model: MODEL_ID,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: RECIPE_SCHEMA,
-      temperature: 0.7,
-    },
-  });
-
   const inventoryText = inventory
     .map(
       (i) =>
@@ -374,7 +399,14 @@ export async function generateRecipes(
     inventoryText,
   ].join("\n");
 
-  const result = await model.generateContent(prompt);
+  const result = await generateWithFallback(
+    {
+      responseMimeType: "application/json",
+      responseSchema: RECIPE_SCHEMA,
+      temperature: 0.7,
+    },
+    prompt
+  );
   const text = result.response.text();
   return JSON.parse(text) as RecipeResponse;
 }

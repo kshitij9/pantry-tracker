@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Gemini's daily free-tier quota is exhausted (20 requests/day). Try again after it resets (~24h), or raise the limit by switching GEMINI_MODEL / enabling billing.",
+          "Gemini's free-tier quota is exhausted across all fallback models. Try again later (per-model quotas reset over minutes-to-hours), or enable billing on the Gemini project to lift the limit.",
         results,
       },
       { status: 429 }
