@@ -67,4 +67,11 @@ export const mealsApi = {
     fetch("/api/meals/suggestions", { cache: "no-store" }).then(
       json<{ suggestions: SuggestionDTO[] }>
     ),
+
+  suggestIngredients: (name: string) =>
+    fetch("/api/meals/suggest-ingredients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then(json<{ ingredients: Array<{ name: string; quantity: number; unit: string }> }>),
 };

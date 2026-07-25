@@ -208,6 +208,71 @@ export async function extractOrderFromInvoice(
 }
 
 // ---------------------------------------------------------------------------
+// 1b. Meal name -> approximate ingredient list (for template creation)
+// ---------------------------------------------------------------------------
+
+export interface SuggestedIngredient {
+  name: string;
+  quantity: number;
+  unit: string;
+}
+
+const MEAL_INGREDIENTS_SCHEMA: Schema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    ingredients: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          name: {
+            type: SchemaType.STRING,
+            description: "Simple ingredient name (e.g. 'Milk', 'Eggs', 'Rice').",
+          },
+          quantity: { type: SchemaType.NUMBER, description: "Approximate amount for one serving." },
+          unit: {
+            type: SchemaType.STRING,
+            description: "Unit: prefer g, ml, or pcs (avoid vague units like 'cup').",
+          },
+        },
+        required: ["name", "quantity", "unit"],
+      },
+    },
+  },
+  required: ["ingredients"],
+};
+
+/**
+ * Given a meal name, return an approximate single-serving ingredient list to
+ * pre-fill a meal template. The user reviews/edits before saving.
+ */
+export async function suggestMealIngredients(
+  mealName: string
+): Promise<SuggestedIngredient[]> {
+  const model = getClient().getGenerativeModel({
+    model: MODEL_ID,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: MEAL_INGREDIENTS_SCHEMA,
+      temperature: 0.3,
+    },
+  });
+
+  const prompt = [
+    "You are a culinary assistant for an Indian household pantry app.",
+    `List the core ingredients to make ONE serving of: "${mealName}".`,
+    "Give approximate quantities in metric units — use g for solids, ml for",
+    "liquids, and pcs for countable items (eggs, bread slices). Avoid vague",
+    "units like 'cup', 'tbsp', or 'pinch'; convert them to g/ml/pcs.",
+    "Keep it to the main ingredients (roughly 3-10). Skip water and plain garnish.",
+  ].join("\n");
+
+  const result = await model.generateContent(prompt);
+  const parsed = JSON.parse(result.response.text()) as { ingredients: SuggestedIngredient[] };
+  return parsed.ingredients ?? [];
+}
+
+// ---------------------------------------------------------------------------
 // 2. Pantry inventory -> recipe suggestions
 // ---------------------------------------------------------------------------
 

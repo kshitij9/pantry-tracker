@@ -1,9 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { X, Plus, Trash2, Star } from "lucide-react";
+import { X, Plus, Trash2, Star, Sparkles, Loader2 } from "lucide-react";
 import { mealsApi } from "@/lib/meals/client";
 import type { TemplateDTO } from "@/lib/meals/types";
+
+/** Merge helper: keep user-entered rows, append AI ones not already present. */
+function mergeIngredients(existing: Row[], incoming: Row[]): Row[] {
+  const kept = existing.filter((r) => r.name.trim());
+  const have = new Set(kept.map((r) => r.name.trim().toLowerCase()));
+  const added = incoming.filter((r) => r.name.trim() && !have.has(r.name.trim().toLowerCase()));
+  const merged = [...kept, ...added];
+  return merged.length ? merged : [{ name: "", quantity: 1, unit: "pcs" }];
+}
 
 interface Row { name: string; quantity: number; unit: string }
 
@@ -28,12 +37,39 @@ export function TemplateEditor({
     ]
   );
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
   function patch(i: number, p: Partial<Row>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...p } : r)));
+  }
+
+  async function suggestIngredients() {
+    if (!name.trim()) {
+      setError("Enter a meal name first, then let AI suggest ingredients.");
+      return;
+    }
+    setSuggesting(true);
+    setError(null);
+    try {
+      const { ingredients } = await mealsApi.suggestIngredients(name.trim());
+      if (ingredients.length === 0) {
+        setError("No ingredients suggested — add them manually.");
+        return;
+      }
+      setRows((prev) =>
+        mergeIngredients(
+          prev,
+          ingredients.map((i) => ({ name: i.name, quantity: i.quantity, unit: i.unit }))
+        )
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   async function save() {
@@ -88,6 +124,15 @@ export function TemplateEditor({
               <Star className={`h-4 w-4 ${isFavorite ? "fill-amber-400" : ""}`} />
             </button>
           </div>
+
+          <button
+            onClick={suggestIngredients}
+            disabled={suggesting}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-emerald-300 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100/60 disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+          >
+            {suggesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {suggesting ? "Asking AI…" : "Suggest ingredients with AI"}
+          </button>
 
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Ingredients</p>
