@@ -32,7 +32,7 @@ try {
   console.log("✅ Authenticated as:", profile.data.emailAddress);
   console.log("   Total messages in mailbox:", profile.data.messagesTotal);
 
-  const vendors = ["swiggy.in", "blinkit.com", "zepto.co", "zeptonow.com"];
+  const vendors = ["instamart.in", "blinkit.com", "zepto.co", "zeptonow.com"];
   const q = `(${vendors.map((d) => `from:${d}`).join(" OR ")}) newer_than:60d`;
   const list = await gmail.users.messages.list({
     userId: GMAIL_USER_ID,

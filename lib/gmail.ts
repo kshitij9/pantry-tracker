@@ -8,7 +8,11 @@ import { gmail, auth as googleAuth } from "@googleapis/gmail";
  * Required scope: https://www.googleapis.com/auth/gmail.readonly
  */
 
-const KNOWN_VENDOR_DOMAINS = ["swiggy.in", "blinkit.com", "zepto.co", "zeptonow.com"];
+// Grocery vendor domains only. Note: Swiggy *Instamart* (groceries) sends from
+// `instamart.in`, whereas Swiggy *Food* (restaurant) sends from `swiggy.in` —
+// we intentionally do NOT include swiggy.in, so restaurant orders are never
+// fetched into this grocery pantry.
+const KNOWN_VENDOR_DOMAINS = ["instamart.in", "blinkit.com", "zepto.co", "zeptonow.com"];
 
 export type Platform = "instamart" | "blinkit" | "zepto";
 
@@ -32,12 +36,14 @@ export function getGmailClient() {
 
 /**
  * Map a sender domain / vendor string to our internal platform enum.
- * Swiggy Instamart order mails come from swiggy.in.
+ * Swiggy Instamart (groceries) mails come from `noreply@instamart.in`.
+ * Plain `swiggy.in` is Swiggy Food (restaurant) — deliberately NOT matched,
+ * so restaurant orders resolve to null and are skipped as unknown-vendor.
  */
 export function resolvePlatform(from: string): Platform | null {
   const lower = from.toLowerCase();
-  if (lower.includes("swiggy.in") || lower.includes("instamart")) return "instamart";
-  if (lower.includes("blinkit.com") || lower.includes("blinkit")) return "blinkit";
+  if (lower.includes("instamart")) return "instamart";
+  if (lower.includes("blinkit")) return "blinkit";
   if (lower.includes("zepto")) return "zepto";
   return null;
 }
