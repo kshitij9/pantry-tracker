@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Check, Trash2, RefreshCw, Upload } from "lucide-react";
+import { Plus, Check, Trash2, RefreshCw, Upload, Mail } from "lucide-react";
 import { ExpiryBadge } from "@/components/ExpiryBadge";
 import { AddItemModal } from "@/components/AddItemModal";
 import { UploadInvoiceModal } from "@/components/UploadInvoiceModal";
@@ -34,6 +34,8 @@ export default function DashboardPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -54,6 +56,28 @@ export default function DashboardPage() {
     if (tab === "All") return items;
     return items.filter((i) => groupForCategory(i.normalizedCategory) === tab);
   }, [items, tab]);
+
+  async function syncOrders() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days: 7 }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Sync failed");
+      const { totalCreated = 0, totalMerged = 0 } = data;
+      if (totalCreated + totalMerged === 0) {
+        setSyncResult("No new orders found in the last 7 days.");
+      } else {
+        setSyncResult(`Synced: ${totalCreated} new item${totalCreated !== 1 ? "s" : ""}, ${totalMerged} updated.`);
+        load();
+      }
+    } catch (err) {
+      setSyncResult((err as Error).message);
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncResult(null), 5000);
+    }
+  }
 
   async function markConsumed(id: string) {
     await fetch(`/api/pantry/${id}`, {
@@ -87,6 +111,15 @@ export default function DashboardPage() {
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
           <button
+            onClick={syncOrders}
+            disabled={syncing}
+            title="Re-scan your Gmail for recent grocery orders"
+            className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-800 dark:hover:bg-neutral-800"
+          >
+            <Mail className={`h-4 w-4 ${syncing ? "animate-pulse" : ""}`} />
+            {syncing ? "Syncing…" : "Sync orders"}
+          </button>
+          <button
             onClick={() => setUploadOpen(true)}
             className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800"
           >
@@ -100,6 +133,12 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {syncResult && (
+        <p className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+          {syncResult}
+        </p>
+      )}
 
       <QuickLog onLogged={load} />
 

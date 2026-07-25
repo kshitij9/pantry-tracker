@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     const { userId, houseId } = target;
 
     // 4. Find candidate order messages and process the unseen ones.
-    const messageIds = await findRecentOrderMessageIds();
+    const messageIds = await findRecentOrderMessageIds(10, 7);
     const results: Array<{
       messageId: string;
       status: string;

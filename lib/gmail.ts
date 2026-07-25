@@ -119,7 +119,10 @@ export async function fetchMessage(messageId: string): Promise<FetchedMessage> {
  * Used by the webhook to resolve which message(s) triggered a notification
  * when only a historyId is supplied.
  */
-export async function findRecentOrderMessageIds(maxResults = 5): Promise<string[]> {
+export async function findRecentOrderMessageIds(
+  maxResults = 5,
+  days = 7
+): Promise<string[]> {
   const client = getGmailClient();
   const userId = process.env.GMAIL_USER_ID || "me";
 
@@ -127,7 +130,7 @@ export async function findRecentOrderMessageIds(maxResults = 5): Promise<string[
 
   const res = await client.users.messages.list({
     userId,
-    q: `(${query}) newer_than:2d`,
+    q: `(${query}) newer_than:${days}d`,
     maxResults,
   });
 
