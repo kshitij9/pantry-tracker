@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveWebhookTarget } from "@/lib/user";
+import { resolveGmailContext, markSynced } from "@/lib/gmail-connection";
 import {
   fetchMessage,
   findRecentOrderMessageIds,
@@ -52,23 +52,23 @@ export async function POST(req: NextRequest) {
       notification = JSON.parse(decoded);
     }
 
-    // 3. Resolve which registered user (and thus which house) this mailbox
-    //    belongs to, based on the notification's emailAddress. If the address
-    //    isn't a signed-up user, or they haven't onboarded into a house yet,
+    // 3. Resolve which connected user (and thus which house) this mailbox
+    //    belongs to, based on the notification's emailAddress. If nobody has
+    //    connected that mailbox, or the owner hasn't onboarded into a house,
     //    we can't attribute the order — acknowledge and stop.
     const email = notification.emailAddress;
-    const target = email ? await resolveWebhookTarget(email) : null;
-    if (!target) {
+    const ctx = email ? await resolveGmailContext(email) : null;
+    if (!ctx || !ctx.houseId) {
       return NextResponse.json({
         ok: true,
         notification,
-        results: [{ status: "skipped:no-house-for-mailbox" }],
+        results: [{ status: ctx ? "skipped:no-house-for-user" : "skipped:mailbox-not-connected" }],
       });
     }
-    const { userId, houseId } = target;
+    const { userId, houseId, client } = ctx;
 
     // 4. Find candidate order messages and process the unseen ones.
-    const messageIds = await findRecentOrderMessageIds(10, 7);
+    const messageIds = await findRecentOrderMessageIds(client, 10, 7);
     const results: Array<{
       messageId: string;
       status: string;
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const message = await fetchMessage(messageId);
+      const message = await fetchMessage(client, messageId);
       const platform: Platform | null =
         message.platform ?? resolvePlatform(message.from);
 
@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    await markSynced(userId);
     return NextResponse.json({ ok: true, notification, results });
   } catch (err) {
     console.error("[gmail-webhook] error:", err);

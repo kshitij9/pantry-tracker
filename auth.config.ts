@@ -18,6 +18,20 @@ export const authConfig = {
       // NextAuth callback URLs are added to that client's redirect URIs.
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      authorization: {
+        params: {
+          // Request read access to the mailbox for order auto-sync, alongside
+          // the usual identity scopes.
+          scope:
+            "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+          // `offline` + `consent` guarantee Google returns a refresh_token
+          // (not just an access token) every time — we need it to read mail
+          // in the background. Without `prompt=consent`, Google omits the
+          // refresh_token on repeat sign-ins.
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
     }),
     // Email (magic-link) provider is intentionally disabled until a mail
     // service is configured. To enable: add a provider in auth.ts (needs the

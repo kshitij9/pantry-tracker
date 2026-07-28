@@ -80,6 +80,7 @@ model User {
   accounts       Account[]
   sessions       Session[]
   pushSubscriptions PushSubscription[]
+  gmailConnection   GmailConnection?
   createdMealTemplates MealTemplate[] @relation("MealTemplateCreatedBy")
   loggedMeals          MealLog[]      @relation("MealLogLoggedBy")
 
@@ -163,6 +164,31 @@ model PantryItem {
 
   @@index([houseId, isConsumed, expiresAt])
   @@map("pantry_items")
+}
+
+/// A user's connected Gmail mailbox for order auto-sync. Created at sign-in
+/// when the user grants the gmail.readonly scope. The refresh token is stored
+/// AES-256-GCM encrypted (never in plaintext). One mailbox per user.
+model GmailConnection {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The Gmail address this connection reads (matches the Pub/Sub emailAddress).
+  email String @unique
+
+  /// AES-256-GCM ciphertext of the OAuth refresh token ("iv:tag:ciphertext").
+  refreshTokenEnc String @db.Text
+
+  /// Latest Gmail historyId + when the push watch expires (Gmail watches last ~7d).
+  historyId       String?
+  watchExpiresAt  DateTime?
+  lastSyncedAt    DateTime?
+
+  connectedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("gmail_connections")
 }
 
 /// A browser Web Push subscription belonging to a user (one per device/browser).

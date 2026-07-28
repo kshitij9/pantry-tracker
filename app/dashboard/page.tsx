@@ -6,6 +6,7 @@ import { ExpiryBadge } from "@/components/ExpiryBadge";
 import { AddItemModal } from "@/components/AddItemModal";
 import { UploadInvoiceModal } from "@/components/UploadInvoiceModal";
 import { NotificationsToggle } from "@/components/NotificationsToggle";
+import { GmailStatus } from "@/components/GmailStatus";
 import { QuickLog } from "@/components/meals/QuickLog";
 import { groupForCategory } from "@/lib/categories";
 
@@ -104,6 +105,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <GmailStatus />
           <NotificationsToggle />
           <button
             onClick={load}

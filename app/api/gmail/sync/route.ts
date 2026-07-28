@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth";
-import { resolveWebhookTarget } from "@/lib/user";
+import { resolveHouseContext } from "@/lib/auth-helpers";
+import {
+  getUserGmailClient,
+  resolveGmailContext,
+  markSynced,
+} from "@/lib/gmail-connection";
 import {
   fetchMessage,
   findRecentOrderMessageIds,
   resolvePlatform,
+  type GmailClient,
 } from "@/lib/gmail";
 import { extractOrderFromEmail } from "@/lib/gemini";
 import { computeExpiresAt } from "@/lib/categories";
@@ -18,13 +23,13 @@ export const maxDuration = 60;
 /**
  * POST /api/gmail/sync
  *
- * Manually scan and process recent order emails. Useful when:
- *   - A watch expired and you missed a delivery notification.
- *   - You want to force-process without waiting for the next Pub/Sub push.
+ * Manually scan and process recent order emails from the caller's own mailbox.
+ * Useful when a watch lapsed or to force-process without waiting for a push.
  *
  * Auth (either works):
- *   - Logged-in session: uses the session user's email (for the dashboard button)
- *   - CRON_SECRET via Bearer header or ?token=: uses body.email or GMAIL_USER_EMAIL env
+ *   - Logged-in session: scans the session user's connected mailbox.
+ *   - CRON_SECRET via Bearer header or ?token= plus body.email: scans that
+ *     connected user's mailbox (for testing/backfill).
  *
  * Body (optional): { days?: number (default 7), email?: string (cron mode only) }
  */
@@ -32,33 +37,46 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const days = Math.min(Number(body?.days ?? 7), 30);
 
-  // Accept either a valid session (dashboard) or CRON_SECRET (cron/curl).
-  const session = await auth();
-  let targetEmail: string | undefined;
+  // Resolve the target mailbox owner + an authenticated client.
+  let userId: string;
+  let houseId: string;
+  let client: GmailClient;
 
-  if (session?.user?.email) {
-    // Authenticated user — scan their own mailbox.
-    targetEmail = session.user.email;
+  const session = await resolveHouseContext();
+  if (session.ok) {
+    // Authenticated dashboard user — their own mailbox.
+    const c = await getUserGmailClient(session.ctx.userId);
+    if (!c) {
+      return NextResponse.json(
+        { error: "Gmail isn't connected for your account. Sign out and sign in again to grant mailbox access." },
+        { status: 400 }
+      );
+    }
+    userId = session.ctx.userId;
+    houseId = session.ctx.houseId;
+    client = c;
   } else {
+    // Cron/curl fallback: CRON_SECRET + a target email.
     const secret = process.env.CRON_SECRET;
     const authHeader = req.headers.get("authorization");
     const token = req.nextUrl.searchParams.get("token");
     if (!secret || (authHeader !== `Bearer ${secret}` && token !== secret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    targetEmail = body?.email ?? process.env.GMAIL_USER_EMAIL ?? process.env.GMAIL_USER_ID;
+    const email = body?.email as string | undefined;
+    const ctx = email ? await resolveGmailContext(email) : null;
+    if (!ctx || !ctx.houseId) {
+      return NextResponse.json(
+        { error: "No connected mailbox with an active house for that email." },
+        { status: 404 }
+      );
+    }
+    userId = ctx.userId;
+    houseId = ctx.houseId;
+    client = ctx.client;
   }
 
-  const target = targetEmail ? await resolveWebhookTarget(targetEmail) : null;
-  if (!target) {
-    return NextResponse.json(
-      { error: "Could not resolve a registered user for this email address. Make sure the user has signed in and completed onboarding." },
-      { status: 404 }
-    );
-  }
-  const { userId, houseId } = target;
-
-  const messageIds = await findRecentOrderMessageIds(20, days);
+  const messageIds = await findRecentOrderMessageIds(client, 20, days);
 
   const results: Array<{
     messageId: string;
@@ -77,7 +95,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const message = await fetchMessage(messageId);
+      const message = await fetchMessage(client, messageId);
       const platform = message.platform ?? resolvePlatform(message.from);
 
       if (!platform) {
@@ -129,6 +147,8 @@ export async function POST(req: NextRequest) {
       results.push({ messageId, status: `error:${(err as Error).message}` });
     }
   }
+
+  await markSynced(userId);
 
   const processed = results.filter((r) => r.status === "processed");
   const totalCreated = processed.reduce((s, r) => s + (r.created ?? 0), 0);

@@ -1,11 +1,12 @@
 import { gmail, auth as googleAuth } from "@googleapis/gmail";
 
 /**
- * Gmail API helpers: OAuth2 client construction + message retrieval.
+ * Gmail API helpers: per-user OAuth2 client construction + message retrieval.
  *
- * We use a long-lived refresh token (obtained once via the OAuth consent flow)
- * so the server can read the user's mailbox without interactive login.
- * Required scope: https://www.googleapis.com/auth/gmail.readonly
+ * Each user connects their own mailbox at sign-in (gmail.readonly scope), and
+ * their refresh token is stored encrypted (see lib/gmail-connection.ts). All
+ * read/watch operations take the caller-supplied client so the app acts on the
+ * correct user's mailbox — there is no longer a single shared env mailbox.
  */
 
 // Grocery vendor domains only. Note: Swiggy *Instamart* (groceries) sends from
@@ -16,22 +17,62 @@ const KNOWN_VENDOR_DOMAINS = ["instamart.in", "blinkit.com", "zepto.co", "zepton
 
 export type Platform = "instamart" | "blinkit" | "zepto";
 
-/** Build an authenticated Gmail client from env credentials. */
-export function getGmailClient() {
+/** The Gmail API client type (v1), for threading through helper signatures. */
+export type GmailClient = ReturnType<typeof gmail>;
+
+/**
+ * Build an authenticated Gmail client for a specific user's refresh token.
+ * The app's OAuth *client* credentials come from env; the *user* token is
+ * passed in (decrypted from their GmailConnection).
+ */
+export function gmailClientFor(refreshToken: string): GmailClient {
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
 
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(
-      "Missing Gmail OAuth env vars (GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN). See .env.example."
-    );
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET. See .env.example.");
   }
 
   const oauth2Client = new googleAuth.OAuth2(clientId, clientSecret);
   oauth2Client.setCredentials({ refresh_token: refreshToken });
-
   return gmail({ version: "v1", auth: oauth2Client });
+}
+
+/** The Pub/Sub topic Gmail publishes mailbox changes to. */
+function watchTopicName(): string {
+  const projectId = process.env.GCP_PROJECT_ID;
+  const topic = process.env.PUBSUB_TOPIC || "gmail-orders";
+  if (!projectId) throw new Error("GCP_PROJECT_ID is not set. See .env.example.");
+  return `projects/${projectId}/topics/${topic}`;
+}
+
+/** Register (or refresh) a push watch on the user's INBOX. */
+export async function registerWatch(
+  client: GmailClient
+): Promise<{ historyId: string | null; expiration: Date | null }> {
+  const res = await client.users.watch({
+    userId: "me",
+    requestBody: {
+      topicName: watchTopicName(),
+      labelIds: ["INBOX"],
+      labelFilterBehavior: "INCLUDE",
+    },
+  });
+  return {
+    historyId: res.data.historyId ?? null,
+    expiration: res.data.expiration ? new Date(Number(res.data.expiration)) : null,
+  };
+}
+
+/** Stop push notifications for the user's mailbox (on disconnect). */
+export async function stopWatch(client: GmailClient): Promise<void> {
+  await client.users.stop({ userId: "me" });
+}
+
+/** Return the address of the connected mailbox (confirms the token works). */
+export async function getMailboxAddress(client: GmailClient): Promise<string | null> {
+  const res = await client.users.getProfile({ userId: "me" });
+  return res.data.emailAddress ?? null;
 }
 
 /**
@@ -96,12 +137,12 @@ export interface FetchedMessage {
 }
 
 /** Fetch a single message by id and return its decoded body + metadata. */
-export async function fetchMessage(messageId: string): Promise<FetchedMessage> {
-  const client = getGmailClient();
-  const userId = process.env.GMAIL_USER_ID || "me";
-
+export async function fetchMessage(
+  client: GmailClient,
+  messageId: string
+): Promise<FetchedMessage> {
   const res = await client.users.messages.get({
-    userId,
+    userId: "me",
     id: messageId,
     format: "full",
   });
@@ -126,16 +167,14 @@ export async function fetchMessage(messageId: string): Promise<FetchedMessage> {
  * when only a historyId is supplied.
  */
 export async function findRecentOrderMessageIds(
+  client: GmailClient,
   maxResults = 5,
   days = 7
 ): Promise<string[]> {
-  const client = getGmailClient();
-  const userId = process.env.GMAIL_USER_ID || "me";
-
   const query = KNOWN_VENDOR_DOMAINS.map((d) => `from:${d}`).join(" OR ");
 
   const res = await client.users.messages.list({
-    userId,
+    userId: "me",
     q: `(${query}) newer_than:${days}d`,
     maxResults,
   });
